@@ -123,3 +123,12 @@ $bw.Flush(); $bw.Dispose(); $fs.Dispose()
 
 $len = (Get-Item $icoPath).Length
 Write-Host "ICO written: $icoPath ($len bytes, $($blobs.Count) sizes: $($sizes -join ', '))"
+
+# Also emit a PNG of the mark for the README and release notes.
+$docs = Join-Path $root "docs"
+if (-not (Test-Path $docs)) { New-Item -ItemType Directory -Path $docs | Out-Null }
+$logoPath = Join-Path $docs "logo.png"
+$logo = Render-Icon 256
+$logo.Save($logoPath, [System.Drawing.Imaging.ImageFormat]::Png)
+$logo.Dispose()
+Write-Host "PNG written: $logoPath (256x256)"

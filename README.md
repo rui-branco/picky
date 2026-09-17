@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="" width="104" height="104">
+</p>
+
 <h1 align="center">Picky</h1>
 
 <p align="center">
