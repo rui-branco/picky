@@ -47,7 +47,18 @@ Click a work link, it opens in your work profile. Click anything else, you choos
 
 ## Install
 
-Download `picky.exe` from [Releases](../../releases), or build it yourself (below).
+Download `picky.exe` from [Releases](../../releases), or build from source:
+
+```powershell
+.\install.ps1
+```
+
+That builds, installs to `%LOCALAPPDATA%\Picky`, registers, and adds a Start Menu
+shortcut. Install to a stable location rather than registering a build output —
+the registration stores an absolute path, so moving or deleting the exe later
+breaks link handling system-wide.
+
+If you downloaded the exe instead, put it somewhere permanent, then:
 
 1. Run `picky.exe` — the settings window opens
 2. Click **Register** — writes to `HKCU` only, no administrator rights needed
@@ -108,6 +119,7 @@ the system ANSI code page.
 | Script | Purpose |
 |---|---|
 | `build.ps1` | Compiles `bin\picky.exe` |
+| `install.ps1` | Builds, installs to `%LOCALAPPDATA%\Picky`, registers, adds a shortcut |
 | `tools\make-icon.ps1` | Generates `assets\picky.ico` from code — no binary source asset |
 | `tools\make-screenshots.ps1` | Renders the README images from the live app in `--demo` mode |
 
