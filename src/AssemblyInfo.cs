@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Runtime.InteropServices;
 
 // csc turns these into the Win32 version resource. Without them Windows has no
@@ -8,6 +8,6 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyDescription("Choose which browser opens each link")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyCopyright("")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
 [assembly: ComVisible(false)]
