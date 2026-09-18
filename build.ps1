@@ -8,17 +8,6 @@ $csc  = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path $csc)) { throw "csc.exe not found at $csc" }
 if (-not (Test-Path $bin)) { New-Item -ItemType Directory -Path $bin | Out-Null }
 
-# System.Web.Extensions (JavaScriptSerializer) is not in the compiler directory on
-# every machine, so probe the usual homes and fall back to a bare name.
-$extCandidates = @(
-  "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\System.Web.Extensions.dll",
-  "C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.7.2\System.Web.Extensions.dll",
-  "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Web.Extensions.dll"
-)
-$ext = $extCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $ext) { $ext = "System.Web.Extensions.dll" }
-Write-Host "System.Web.Extensions: $ext"
-
 $out = Join-Path $bin "picky.exe"
 $files = Get-ChildItem $src -Filter *.cs | ForEach-Object { $_.FullName }
 
@@ -39,8 +28,7 @@ $args = @(
   "/reference:System.dll",
   "/reference:System.Core.dll",
   "/reference:System.Drawing.dll",
-  "/reference:System.Windows.Forms.dll",
-  "/reference:$ext"
+  "/reference:System.Windows.Forms.dll"
 ) + $files
 
 Write-Host "Compiling $($files.Count) files..."

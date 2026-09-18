@@ -1,11 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Web.Script.Serialization;
 
 namespace Picky
 {
@@ -227,6 +226,7 @@ namespace Picky
             {
                 foreach (ProfileInfo p in profiles)
                 {
+                    Bitmap profileIco = TryProfileIcon(b.UserDataDir, p.Dir);
                     outList.Add(new Target
                     {
                         Id = key + "|" + p.Dir,
@@ -236,7 +236,7 @@ namespace Picky
                         ExePath = exe,
                         // Always the directory key, never the display label.
                         ArgsTemplate = "--profile-directory=\"" + p.Dir + "\" {url}",
-                        Image = ico
+                        Image = profileIco != null ? profileIco : ico
                     });
                 }
             }
@@ -298,24 +298,22 @@ namespace Picky
                 if (!File.Exists(ls)) return res;
 
                 string json = File.ReadAllText(ls, Encoding.UTF8);
-                JavaScriptSerializer ser = new JavaScriptSerializer();
-                ser.MaxJsonLength = int.MaxValue;
-                Dictionary<string, object> root = ser.Deserialize<Dictionary<string, object>>(json);
+                Dictionary<string, object> root = Json.Obj(Json.Parse(json));
                 if (root == null) return res;
 
                 object profObj;
                 if (!root.TryGetValue("profile", out profObj)) return res;
-                Dictionary<string, object> prof = profObj as Dictionary<string, object>;
+                Dictionary<string, object> prof = Json.Obj(profObj);
                 if (prof == null) return res;
 
                 object cacheObj;
                 if (!prof.TryGetValue("info_cache", out cacheObj)) return res;
-                Dictionary<string, object> cache = cacheObj as Dictionary<string, object>;
+                Dictionary<string, object> cache = Json.Obj(cacheObj);
                 if (cache == null) return res;
 
                 foreach (KeyValuePair<string, object> kv in cache)
                 {
-                    Dictionary<string, object> v = kv.Value as Dictionary<string, object>;
+                    Dictionary<string, object> v = Json.Obj(kv.Value);
                     string label = null;
                     string email = "";
                     if (v != null)
@@ -323,8 +321,8 @@ namespace Picky
                         // shortcut_name carries the real label (Personal, Work). The name
                         // field is often a meaningless "Profile N" that disagrees with the
                         // directory it lives in, so it is the last resort before the key.
-                        label = FirstNonEmpty(Str(v, "shortcut_name"), Str(v, "gaia_name"), Str(v, "name"));
-                        email = Str(v, "user_name");
+                        label = FirstNonEmpty(Json.Str(v, "shortcut_name"), Json.Str(v, "gaia_name"), Json.Str(v, "name"));
+                        email = Json.Str(v, "user_name");
                         if (email == null) email = "";
                     }
                     if (string.IsNullOrEmpty(label)) label = kv.Key;
@@ -354,17 +352,6 @@ namespace Picky
             return int.MaxValue;
         }
 
-        static string Str(Dictionary<string, object> d, string key)
-        {
-            object v;
-            if (d.TryGetValue(key, out v) && v != null)
-            {
-                string s = v.ToString();
-                if (!string.IsNullOrEmpty(s)) return s;
-            }
-            return null;
-        }
-
         static string FirstNonEmpty(params string[] vals)
         {
             foreach (string v in vals)
@@ -385,6 +372,33 @@ namespace Picky
 
         [DllImport("user32.dll")]
         static extern bool DestroyIcon(IntPtr handle);
+
+        // Chromium writes a badged icon (logo + profile avatar) into the profile dir.
+        static Bitmap TryProfileIcon(string userDataDir, string profileDir)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(userDataDir) || string.IsNullOrEmpty(profileDir))
+                    return null;
+
+                string dir = Path.Combine(userDataDir, profileDir);
+                if (!Directory.Exists(dir))
+                    return null;
+
+                string[] files = Directory.GetFiles(dir, "*Profile.ico");
+                if (files.Length == 0)
+                    return null;
+
+                Array.Sort(files);
+                string path = files[0];
+
+                using (Icon ic = new Icon(path, 64, 64))
+                using (Bitmap tmp = ic.ToBitmap())
+                    return new Bitmap(tmp);
+            }
+            catch { }
+            return null;
+        }
 
         static Bitmap TryIcon(string exe)
         {

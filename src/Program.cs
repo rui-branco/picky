@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows.Forms;
 
@@ -37,6 +37,9 @@ namespace Picky
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+
+            // An update leaves the previous build renamed beside this one.
+            Updater.CleanupOldBuild();
 
             // --keep pins the picker open instead of dismissing it on focus loss,
             // so it can be inspected without a real link click.
@@ -117,7 +120,7 @@ namespace Picky
                 }
             }
 
-            Application.Run(new PickerForm(targets, url));
+            Application.Run(new PickerForm(targets, url, cfg));
         }
     }
 }
