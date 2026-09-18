@@ -1,12 +1,13 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Picky
 {
+    /// <summary>The picker window: activation and input.
+    /// How it looks is the job of PickerView.</summary>
     public class PickerForm : Form
     {
         [DllImport("user32.dll")]
@@ -19,9 +20,28 @@ namespace Picky
         static extern bool DeleteObject(IntPtr hObject);
 
         const int CS_DROPSHADOW = 0x00020000;
+        const int WM_GETMINMAXINFO = 0x0024;
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct POINTS
+        {
+            public int X;
+            public int Y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct MINMAXINFO
+        {
+            public POINTS Reserved;
+            public POINTS MaxSize;
+            public POINTS MaxPosition;
+            public POINTS MinTrackSize;
+            public POINTS MaxTrackSize;
+        }
 
         readonly List<Target> _targets;
         readonly string _url;
+        readonly PickerView _view;
         int _sel;
         int _hover = -1;
         bool _launched;
@@ -29,71 +49,45 @@ namespace Picky
 
         public static bool AutoClose = true;
 
-        const int Corner = 12;
-        const int RowH = 52;
-        const int HeaderH = 46;
-        const int PadX = 14;
-        const int IconSize = 24;
-        const int ChipW = 20;
-        const int RowInset = 7;
+        // There is deliberately no opening animation. The picker is launched as a
+        // fresh process by a click, and the only two ways to animate that first
+        // appearance both cost more than they give: holding the message loop to
+        // drive the frames keeps the shell showing its launch spinner, and a
+        // WM_TIMER is delivered only when the queue is idle, which during window
+        // creation means the frames arrive in clumps. Appearing at once is both
+        // faster and steadier than either.
 
-        static readonly Color CBack = ColorTranslator.FromHtml("#1C1D20");
-        static readonly Color CText = ColorTranslator.FromHtml("#F1F3F4");
-        static readonly Color CDim = ColorTranslator.FromHtml("#9AA0A6");
-        static readonly Color CDimmer = ColorTranslator.FromHtml("#6E7378");
-        static readonly Color CSel = ColorTranslator.FromHtml("#2E3034");
-        static readonly Color CHover = ColorTranslator.FromHtml("#26282C");
-        static readonly Color CAccent = ColorTranslator.FromHtml("#8AB4F8");
-        static readonly Color CBorder = ColorTranslator.FromHtml("#34363B");
-        static readonly Color CRule = ColorTranslator.FromHtml("#26282C");
-        static readonly Color CChip = ColorTranslator.FromHtml("#303236");
-
-        Font _fLabel;
-        Font _fSub;
-        Font _fHost;
-        Font _fChip;
-
-        public PickerForm(List<Target> targets, string url)
+        public PickerForm(List<Target> targets, string url, AppConfig cfg)
         {
             _targets = targets;
             _url = url;
+            _view = new PickerView(targets, url, cfg);
             _sel = 0;
 
-            _fLabel = MakeFont(10.5f, FontStyle.Regular);
-            _fSub = MakeFont(8.25f, FontStyle.Regular);
-            _fHost = MakeFont(9.75f, FontStyle.Regular);
-            _fChip = MakeFont(8f, FontStyle.Regular);
+            // Without this the form scales itself against the system font when its
+            // handle is created, growing the window while the menu keeps painting
+            // at the size it measured - the content ends up in the top-left corner
+            // of a larger, half-empty window.
+            AutoScaleMode = AutoScaleMode.None;
+
+            ControlBox = false;
+            MinimizeBox = false;
+            MaximizeBox = false;
 
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.Manual;
             ShowInTaskbar = false;
             TopMost = true;
-            BackColor = CBack;
+            BackColor = ColorTranslator.FromHtml("#1C1D20");
             DoubleBuffered = true;
             KeyPreview = true;
             Text = "Picky";
 
-            Width = 420;
-            Height = HeaderH + _targets.Count * RowH + 8;
+            Size s = _view.Measure(Screen.FromPoint(Cursor.Position).WorkingArea.Width);
+            Width = s.Width;
+            Height = s.Height;
 
             PositionAtCursor();
-        }
-
-        static Font MakeFont(float size, FontStyle style)
-        {
-            // Segoe UI Variable is the Windows 11 face; fall back cleanly on 10.
-            string[] prefs = new string[] { "Segoe UI Variable Display", "Segoe UI" };
-            foreach (string name in prefs)
-            {
-                try
-                {
-                    Font f = new Font(name, size, style);
-                    if (string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)) return f;
-                    f.Dispose();
-                }
-                catch { }
-            }
-            return new Font(FontFamily.GenericSansSerif, size, style);
         }
 
         protected override CreateParams CreateParams
@@ -112,9 +106,39 @@ namespace Picky
             ApplyRoundedRegion();
         }
 
+        /// <summary>
+        /// Windows refuses to make any window smaller than MinWindowTrackSize,
+        /// 136x39 by default. A dock of logos is narrower than that, and the menu
+        /// was left painted in the corner of an over-wide window. This is the only
+        /// place that limit can be lifted.
+        /// </summary>
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_GETMINMAXINFO && m.LParam != IntPtr.Zero)
+            {
+                MINMAXINFO mmi = (MINMAXINFO)Marshal.PtrToStructure(m.LParam, typeof(MINMAXINFO));
+                mmi.MinTrackSize.X = 1;
+                mmi.MinTrackSize.Y = 1;
+                Marshal.StructureToPtr(mmi, m.LParam, false);
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            base.WndProc(ref m);
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            // The rounded region is cut to a specific size; anything that resizes
+            // the window has to have it cut again or the corners stop matching.
+            if (IsHandleCreated) ApplyRoundedRegion();
+        }
+
         void ApplyRoundedRegion()
         {
-            IntPtr rgn = CreateRoundRectRgn(0, 0, Width + 1, Height + 1, Corner * 2, Corner * 2);
+            int corner = _view.CornerRadius;
+            IntPtr rgn = CreateRoundRectRgn(0, 0, Width + 1, Height + 1,
+                corner * 2, corner * 2);
             if (rgn == IntPtr.Zero) return;
             try { Region = Region.FromHrgn(rgn); }
             finally { DeleteObject(rgn); }
@@ -162,27 +186,17 @@ namespace Picky
             if (_everActivated && AutoClose) Close();
         }
 
-        Rectangle RowRect(int i)
-        {
-            return new Rectangle(0, HeaderH + i * RowH, Width, RowH);
-        }
-
-        int IndexAt(Point p)
-        {
-            if (p.Y < HeaderH) return -1;
-            int i = (p.Y - HeaderH) / RowH;
-            if (i < 0 || i >= _targets.Count) return -1;
-            return i;
-        }
-
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            int i = IndexAt(e.Location);
+            int i = _view.IndexAt(e.Location);
             if (i != _hover)
             {
                 _hover = i;
                 if (i >= 0) _sel = i;
+                // A hand over the rows, an arrow over the header and the padding:
+                // the pointer should only promise a click where one does something.
+                Cursor = i >= 0 ? Cursors.Hand : Cursors.Default;
                 Invalidate();
             }
         }
@@ -191,13 +205,14 @@ namespace Picky
         {
             base.OnMouseLeave(e);
             _hover = -1;
+            Cursor = Cursors.Default;
             Invalidate();
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            int i = IndexAt(e.Location);
+            int i = _view.IndexAt(e.Location);
             if (i >= 0) LaunchIndex(i);
         }
 
@@ -207,12 +222,14 @@ namespace Picky
 
             if (e.KeyCode == Keys.Escape) { Close(); return; }
 
-            if (e.KeyCode == Keys.Down)
+            // Both axes step through the list: which one feels natural depends on
+            // the layout, and neither key does anything else here.
+            if (e.KeyCode == Keys.Down || e.KeyCode == Keys.Right)
             {
                 _sel = (_sel + 1) % _targets.Count;
                 Invalidate(); e.Handled = true; return;
             }
-            if (e.KeyCode == Keys.Up)
+            if (e.KeyCode == Keys.Up || e.KeyCode == Keys.Left)
             {
                 _sel = (_sel - 1 + _targets.Count) % _targets.Count;
                 Invalidate(); e.Handled = true; return;
@@ -235,126 +252,16 @@ namespace Picky
             Close();
         }
 
-        static GraphicsPath RoundedPath(RectangleF r, float radius)
-        {
-            GraphicsPath p = new GraphicsPath();
-            float d = radius * 2;
-            p.AddArc(r.X, r.Y, d, d, 180, 90);
-            p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
-            p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
-            p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
-            p.CloseFigure();
-            return p;
-        }
-
         protected override void OnPaint(PaintEventArgs e)
         {
-            Graphics g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            g.Clear(CBack);
-
-            DrawHeader(g);
-
-            for (int i = 0; i < _targets.Count; i++)
-                DrawRow(g, i);
-
-            // Hairline border traced along the rounded edge.
-            using (GraphicsPath p = RoundedPath(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), Corner))
-            using (Pen bp = new Pen(CBorder, 1f))
-                g.DrawPath(bp, p);
-        }
-
-        void DrawHeader(Graphics g)
-        {
-            string host = AppConfig.GetHost(_url);
-            if (string.IsNullOrEmpty(host)) host = _url;
-
-            TextFormatFlags f = TextFormatFlags.Left | TextFormatFlags.VerticalCenter
-                              | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
-
-            Rectangle r = new Rectangle(PadX + 6, 0, Width - (PadX + 6) * 2, HeaderH);
-            TextRenderer.DrawText(g, host, _fHost, r, CAccent, f);
-
-            using (Pen p = new Pen(CRule, 1f))
-                g.DrawLine(p, PadX, HeaderH - 1, Width - PadX, HeaderH - 1);
-        }
-
-        void DrawRow(Graphics g, int i)
-        {
-            Target t = _targets[i];
-            Rectangle r = RowRect(i);
-
-            bool selected = (i == _sel);
-            if (selected || i == _hover)
-            {
-                RectangleF fill = new RectangleF(
-                    RowInset, r.Y + 2, Width - RowInset * 2, RowH - 4);
-                using (GraphicsPath p = RoundedPath(fill, 9f))
-                using (SolidBrush b = new SolidBrush(selected ? CSel : CHover))
-                    g.FillPath(b, p);
-            }
-
-            int x = PadX + 6;
-
-            if (t.Image != null)
-            {
-                try
-                {
-                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                    g.DrawImage(t.Image, new Rectangle(x, r.Y + (RowH - IconSize) / 2, IconSize, IconSize));
-                }
-                catch { }
-            }
-            x += IconSize + 12;
-
-            int chipSpace = ChipW + 10;
-            int textW = Width - x - PadX - chipSpace;
-            bool hasSub = !string.IsNullOrEmpty(t.Subtitle);
-
-            TextFormatFlags f = TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
-
-            if (hasSub)
-            {
-                Rectangle r1 = new Rectangle(x, r.Y + 8, textW, 19);
-                Rectangle r2 = new Rectangle(x, r.Y + 27, textW, 17);
-                TextRenderer.DrawText(g, t.ProfileLabel, _fLabel, r1, CText, f);
-                TextRenderer.DrawText(g, t.BrowserName + "  \u00B7  " + t.Subtitle, _fSub, r2, CDim, f);
-            }
-            else
-            {
-                Rectangle r1 = new Rectangle(x, r.Y + 9, textW, 19);
-                Rectangle r2 = new Rectangle(x, r.Y + 28, textW, 17);
-                TextRenderer.DrawText(g, t.ProfileLabel, _fLabel, r1, CText, f);
-                TextRenderer.DrawText(g, t.BrowserName, _fSub, r2, CDim, f);
-            }
-
-            if (i < 9)
-            {
-                RectangleF chip = new RectangleF(
-                    Width - PadX - ChipW - 4, r.Y + (RowH - ChipW) / 2f, ChipW, ChipW);
-                if (selected)
-                {
-                    using (GraphicsPath p = RoundedPath(chip, 6f))
-                    using (SolidBrush b = new SolidBrush(CChip))
-                        g.FillPath(b, p);
-                }
-                TextFormatFlags fn = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
-                                   | TextFormatFlags.NoPrefix;
-                TextRenderer.DrawText(g, (i + 1).ToString(), _fChip,
-                    Rectangle.Round(chip), selected ? CDim : CDimmer, fn);
-            }
+            _view.Paint(e.Graphics, _sel, _hover);
         }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
-                if (_fLabel != null) _fLabel.Dispose();
-                if (_fSub != null) _fSub.Dispose();
-                if (_fHost != null) _fHost.Dispose();
-                if (_fChip != null) _fChip.Dispose();
+                if (_view != null) _view.Dispose();
             }
             base.Dispose(disposing);
         }
