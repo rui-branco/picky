@@ -84,6 +84,8 @@ namespace Picky
     public class FlatButton : Button
     {
         public bool Primary = false;
+        /// <summary>Text only - no fill, no border - for a bare inline action.</summary>
+        public bool Ghost = false;
         public int Radius = 8;
         /// <summary>Colour behind the rounded corners - set to the card colour when placed on one.</summary>
         public Color Backdrop = Theme.Back;
@@ -108,6 +110,15 @@ namespace Picky
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Backdrop);
+
+            if (Ghost)
+            {
+                TextRenderer.DrawText(g, Text, Font, ClientRectangle,
+                    _hover ? Theme.Text : Theme.Accent,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.NoPrefix);
+                return;
+            }
 
             Color fill, fg;
             if (Primary)
