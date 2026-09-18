@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Choose which browser opens each link.</strong><br>
-  A Choosy-style browser chooser for Windows — in a single 60&nbsp;KB executable.
+  A Choosy-style browser chooser for Windows — in a single 85&nbsp;KB executable.
 </p>
 
 <p align="center">
@@ -32,18 +32,24 @@ Click a work link, it opens in your work profile. Click anything else, you choos
 ## Features
 
 - **Per-profile targets** — Chrome and Edge profiles are separate destinations, not just "Chrome"
+- **Real profile logos** — each entry uses the badged icon the browser itself puts on your taskbar
 - **Rules** — host patterns route silently, so the links you always know about never interrupt you
 - **Picker** — appears at the cursor; click, or press `1`–`9`
-- **Reorderable** — drag to set the order, which becomes the number-key order
+- **Shaped to taste** — a list or a dock, five sizes, and switches for names, addresses and private windows
+- **Reorderable** — drag a logo in the live preview; that order becomes the number-key order
+- **Self-updating** — settings checks Releases and installs a new version on click
 - **Keyboard-first** — arrows and `Enter`, `Esc` to cancel, `Shift` while clicking to force the picker
 - **Nothing resident** — no tray icon, no startup entry, no background process
-- **No installer, no dependencies** — one exe, ~60 KB
+- **No installer, no dependencies** — one exe, ~85 KB
 
 ## Screenshots
 
 <p align="center">
-  <img src="docs/settings.png" alt="Picky settings: status, browser list, and rules" width="722">
+  <img src="docs/settings.png" alt="Picky settings: appearance switches, a live preview of the menu, and rules" width="722">
 </p>
+
+The preview in the middle is the real picker, drawn by the same code that draws
+the menu itself — so it cannot show you something a link would not.
 
 ## Install
 
@@ -61,21 +67,36 @@ breaks link handling system-wide.
 If you downloaded the exe instead, put it somewhere permanent, then:
 
 1. Run `picky.exe` — the settings window opens
-2. Click **Register** — writes to `HKCU` only, no administrator rights needed
-3. Click **Set as default** and assign **http** and **https** to Picky
+2. Click **Setup** — writes to `HKCU` only, no administrator rights needed
+3. Click **Default** and assign **http** and **https** to Picky
+
+That button is the one word at the top right, and it tells you where you are:
+**Setup** before registering, **Default** once registered, **Change** once Picky
+is handling your links.
 
 That last step is manual by design. Windows protects the default-browser setting
 with a per-user hash specifically so that no program can reassign it silently.
 Any tool that claims to do it for you is forging that hash, and Windows reverts it.
 
-**Unregister** removes every key Picky added.
+## Updates
+
+Opening settings checks the [Releases](../../releases) page in the background. When
+a release is newer than the running build, a bar appears under the title with an
+**Update** button: it downloads that release's `picky.exe`, moves the running one
+aside, swaps the new one in and restarts.
+
+The repository is pinned in the source rather than read from config — an updater
+that can be pointed elsewhere by a settings file is a way to make Picky run
+someone else's code. A release is only offered if it is not a draft or a
+prerelease and has a `picky.exe` attached, and the download is rejected unless it
+is really a program.
 
 ## Usage
 
 | Action | Result |
 |---|---|
 | Click a link | A matching rule routes it silently; otherwise the picker appears |
-| `1` – `9` | Open in that entry |
+| `1` – `9` | Open in that entry — the keys work even where the numbers are not drawn |
 | `↑` `↓` then `Enter` | Move the selection and open |
 | `Esc`, or click away | Dismiss without opening |
 | **Shift** while clicking a link | Force the picker even when a rule matches |
@@ -87,14 +108,25 @@ or edit `%APPDATA%\Picky\config.json`:
 
 ```json
 {
-  "rules": [
-    { "pattern": "*.company.com", "targetId": "microsoftedge|Profile 1" },
-    { "pattern": "github.com",    "targetId": "googlechrome|Default" }
+  "Rules": [
+    { "Pattern": "*.company.com", "TargetId": "microsoftedge|Profile 1" },
+    { "Pattern": "github.com",    "TargetId": "googlechrome|Default" }
   ],
-  "order": ["microsoftedge|Default", "microsoftedge|Profile 1"],
-  "showPrivate": true
+  "Order": ["microsoftedge|Default", "microsoftedge|Profile 1"],
+  "ShowPrivate": true,
+  "PickerLayout": "column",
+  "ShowLabels": true,
+  "ShowHost": true,
+  "ShowBrowserName": true,
+  "PickerScale": 1.0
 }
 ```
+
+Key names are matched exactly, so keep the capitalisation above — it is what the
+settings window writes. Everything below `ShowPrivate` is appearance: `PickerLayout`
+is `"column"` or `"row"`, the three switches drop the profile name, the link
+address and the browser name, and `PickerScale` sizes the whole menu (clamped to
+0.5–2.0, since a zero would leave nothing to click).
 
 Patterns are case-insensitive and anchored, so `github.com` does **not** match
 `evil-github.com`. `*` is the only wildcard. A rule pointing at a browser or
