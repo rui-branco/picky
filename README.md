@@ -133,28 +133,6 @@ Patterns are case-insensitive and anchored, so `github.com` does **not** match
 profile that no longer exists falls through to the picker rather than silently
 doing nothing.
 
-## Build
-
-```powershell
-.\build.ps1
-```
-
-No SDK and no NuGet. It compiles with the C# compiler that ships in Windows
-(`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`) against .NET
-Framework 4.8, which is present on every Windows 10 and 11 install.
-
-That compiler is the **legacy** one — C# 5 only. No string interpolation, no
-null-conditional operators, no `nameof`. Source is kept pure ASCII (non-ASCII
-characters are written as `\uXXXX` escapes) because it reads BOM-less files using
-the system ANSI code page.
-
-| Script | Purpose |
-|---|---|
-| `build.ps1` | Compiles `bin\picky.exe` |
-| `install.ps1` | Builds, installs to `%LOCALAPPDATA%\Picky`, registers, adds a shortcut |
-| `tools\make-icon.ps1` | Generates `assets\picky.ico` from code — no binary source asset |
-| `tools\make-screenshots.ps1` | Renders the README images from the live app in `--demo` mode |
-
 ## How it works
 
 "Default browser" on Windows means a program registered as the handler for the
