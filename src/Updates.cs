@@ -122,16 +122,30 @@ namespace Picky
             return null;
         }
 
-        public static void CheckAsync(Action<ReleaseInfo> done)
+        /// <summary>Reports the newer release, or null; err is set when the check
+        /// itself did not get through.</summary>
+        public static void CheckAsync(Action<ReleaseInfo, string> done)
         {
             ThreadPool.QueueUserWorkItem(delegate
             {
                 ReleaseInfo r = null;
-                // Offline, rate-limited, renamed repo: none of it is worth a dialog.
+                string err = null;
+                // Offline, rate-limited, renamed repo: none of it is worth a dialog,
+                // but a check someone asked for should still say it failed.
                 try { r = Check(); }
-                catch { }
-                if (done != null) done(r);
+                catch (Exception ex) { err = ex.Message; }
+                if (done != null) done(r, err);
             });
+        }
+
+        /// <summary>The running version as a release would name it, e.g. 1.3.0.</summary>
+        public static string CurrentLabel
+        {
+            get
+            {
+                Version v = Current;
+                return v.Major + "." + v.Minor + "." + v.Build;
+            }
         }
 
         /// <summary>Downloads beside the installed exe and returns the temporary path.</summary>

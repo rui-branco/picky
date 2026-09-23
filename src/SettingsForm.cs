@@ -32,11 +32,17 @@ namespace Picky
             new string[] { "S", "M", "L", "XL", "XXL" };
         PickerPreview _preview;
         FlatButton _updateBtn;
+        FlatButton _checkBtn;
 
         ReleaseInfo _update;
         string _updateText;
         bool _updating;
         bool _checked;
+        bool _checking;
+        bool _reportCheck;   // the check in flight was asked for, so say how it went
+        Timer _checkNote;    // puts the button back to its plain label
+
+        const string CheckLabel = "Check for updates";
 
         Card _acard, _rcard, _pbox;
         FlatButton _add, _del, _save;
@@ -130,6 +136,26 @@ namespace Picky
             _updateBtn.Visible = false;
             _updateBtn.Click += delegate { StartUpdate(); };
             Controls.Add(_updateBtn);
+
+            // ---- manual update check, beside the status word ----
+            // The bar above only exists once a release is found, which left no
+            // way to ask on a build that was already current.
+            _checkBtn = new FlatButton();
+            _checkBtn.Backdrop = Theme.Back;
+            _checkBtn.Ghost = true;
+            _checkBtn.Font = _fBody;
+            _checkBtn.Text = CheckLabel;
+            _checkBtn.Click += delegate { CheckForUpdates(true); };
+            Controls.Add(_checkBtn);
+
+            _checkNote = new Timer();
+            _checkNote.Interval = 4000;
+            _checkNote.Tick += delegate
+            {
+                _checkNote.Stop();
+                if (!_checking) _checkBtn.Text = CheckLabel;
+                _checkBtn.Invalidate();
+            };
 
             // ---- browsers ----
             // Lives on the picker card with the other switches: what it really
@@ -325,6 +351,9 @@ namespace Picky
 
             _yStatus = y;
             _defaultBtn.SetBounds(Pad + w - 96, _yStatus + 7, 96, 32);
+            // Once a release is found the bar below carries the action instead.
+            _checkBtn.SetBounds(Pad + w - 96 - 134, _yStatus + 7, 134, 32);
+            _checkBtn.Visible = _update == null;
             y += 46 + 18;
 
             if (_update != null)
@@ -566,24 +595,59 @@ namespace Picky
             // Only once per window, and only after there is a handle to marshal back to.
             if (_checked) return;
             _checked = true;
-            Updater.CheckAsync(delegate(ReleaseInfo r) { OnUpdateFound(r); });
+            CheckForUpdates(false);
         }
 
-        void OnUpdateFound(ReleaseInfo r)
+        void CheckForUpdates(bool asked)
         {
-            if (r == null) return;
-            try
+            if (_updating || _update != null) return;
+            if (asked)
             {
-                if (!IsHandleCreated || IsDisposed) return;
-                BeginInvoke((MethodInvoker)delegate
-                {
-                    _update = r;
-                    _updateText = "Picky " + r.Tag + " is available.";
-                    _updateBtn.Visible = true;
-                    LayoutUi();
-                });
+                // A click during the check made on opening joins that one.
+                _reportCheck = true;
+                _checkNote.Stop();
+                _checkBtn.Text = "Checking…";
+                _checkBtn.Invalidate();
             }
-            catch { }
+            if (_checking) return;
+
+            _checking = true;
+            Updater.CheckAsync(delegate(ReleaseInfo r, string err)
+            {
+                try
+                {
+                    if (!IsHandleCreated || IsDisposed) return;
+                    BeginInvoke((MethodInvoker)delegate { CheckDone(r, err); });
+                }
+                catch { }
+            });
+        }
+
+        void CheckDone(ReleaseInfo r, string err)
+        {
+            _checking = false;
+            bool report = _reportCheck;
+            _reportCheck = false;
+            _checkBtn.Text = CheckLabel;
+
+            if (r != null)
+            {
+                _update = r;
+                _updateText = "Picky " + r.Tag + " is available.";
+                _updateBtn.Visible = true;
+                LayoutUi();
+                return;
+            }
+
+            // The check made on opening stays quiet; one that was asked for answers.
+            if (report)
+            {
+                _checkBtn.Text = err == null
+                    ? "Up to date · " + Updater.CurrentLabel
+                    : "Could not check";
+                _checkNote.Start();
+            }
+            _checkBtn.Invalidate();
         }
 
         void StartUpdate()
@@ -659,10 +723,10 @@ namespace Picky
                 catch { }
             }
 
-            // Title on the left, one bare word of action on the right. The status
+            // Title on the left, bare words of action on the right. The status
             // used to be a sentence in a filled pill, which was a lot of furniture
             // for something the button already says.
-            int textW = _cardW - 48 - 110;
+            int textW = _cardW - 48 - 110 - (_checkBtn.Visible ? 134 : 0);
 
             TextRenderer.DrawText(g, "Picky", _fTitle,
                 new Rectangle(Pad + 48, _yStatus + 1, textW, 24), Theme.Text,
@@ -768,6 +832,7 @@ namespace Picky
                 _watchers.Clear();
                 if (_rescan != null) _rescan.Dispose();
                 if (_poll != null) _poll.Dispose();
+                if (_checkNote != null) _checkNote.Dispose();
                 if (_fTitle != null) _fTitle.Dispose();
                 if (_fSub != null) _fSub.Dispose();
                 if (_fSection != null) _fSection.Dispose();
