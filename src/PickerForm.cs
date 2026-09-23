@@ -49,8 +49,8 @@ namespace Picky
 
         public static bool AutoClose = true;
 
-        // There is deliberately no opening animation. The picker is launched as a
-        // fresh process by a click, and the only two ways to animate that first
+        // There is deliberately no opening animation. The picker can be launched
+        // as a fresh process by a click, and the only two ways to animate that first
         // appearance both cost more than they give: holding the message loop to
         // drive the frames keeps the shell showing its launch spinner, and a
         // WM_TIMER is delivered only when the queue is idle, which during window

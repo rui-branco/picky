@@ -13,6 +13,7 @@ namespace Picky
         const string ClientKey = @"SOFTWARE\Clients\StartMenuInternet\Picky";
         const string ClassKey = @"SOFTWARE\Classes\PickyURL";
         const string RegAppsKey = @"SOFTWARE\RegisteredApplications";
+        const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
         public static string ExePath
         {
@@ -59,6 +60,11 @@ namespace Picky
 
             using (RegistryKey k = Registry.CurrentUser.CreateSubKey(RegAppsKey))
                 k.SetValue(AppName, @"Software\Clients\StartMenuInternet\Picky\Capabilities");
+
+            // Started with Windows, so even the first click of the day finds it
+            // running. Startup apps in Settings can still switch this off.
+            using (RegistryKey k = Registry.CurrentUser.CreateSubKey(RunKey))
+                k.SetValue(AppName, "\"" + exe + "\" --background");
         }
 
         public static void Unregister()
@@ -73,6 +79,15 @@ namespace Picky
                 }
             }
             catch { }
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RunKey, true))
+                {
+                    if (k != null) k.DeleteValue(AppName, false);
+                }
+            }
+            catch { }
+            Handoff.Stop();
         }
 
         static void TryDeleteTree(string path)

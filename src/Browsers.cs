@@ -21,10 +21,18 @@ namespace Picky
 
     public static class Launcher
     {
+        const int ASFW_ANY = -1;
+
         public static void Launch(Target t, string url)
         {
             try
             {
+                // A running browser hands the link to its own main process, which
+                // then has to raise its window. Started from the running copy of
+                // Picky, nothing in that chain holds the foreground and the page
+                // opens behind - so pass on the right the click handed over.
+                Handoff.AllowSetForegroundWindow(ASFW_ANY);
+
                 // Strip quotes so a hostile URL cannot break out of its argument.
                 string safe = (url == null ? "" : url).Replace("\"", "");
                 string args = t.ArgsTemplate.Replace("{url}", "\"" + safe + "\"");

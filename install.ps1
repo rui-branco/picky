@@ -39,6 +39,10 @@ $sc.Description = "Choose which browser opens each link"
 $sc.Save()
 Write-Host "Shortcut  -> $lnk"
 
+# Registering adds Picky to startup; start it now too, so the very next link is
+# already a hand-off rather than a cold start.
+Start-Process $exe -ArgumentList "--background"
+
 $handler = (Get-ItemProperty "HKCU:\SOFTWARE\Classes\PickyURL\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
 $choice = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice" -ErrorAction SilentlyContinue).ProgId
 

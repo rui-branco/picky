@@ -209,6 +209,9 @@ namespace Picky
                 throw;
             }
 
+            // The running copy is still the old build. Stopped, the next click
+            // starts the new one in its place.
+            Handoff.Stop();
             System.Diagnostics.Process.Start(exe);
             Application.Exit();
         }
