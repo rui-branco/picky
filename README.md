@@ -39,7 +39,7 @@ Click a work link, it opens in your work profile. Click anything else, you choos
 - **Reorderable** — drag a logo in the live preview; that order becomes the number-key order
 - **Self-updating** — settings checks Releases and installs a new version on click
 - **Keyboard-first** — arrows and `Enter`, `Esc` to cancel, `Shift` while clicking to force the picker
-- **Nothing resident** — no tray icon, no startup entry, no background process
+- **Instant, and light between clicks** — a hidden copy answers each click in ~50 ms; between clicks it uses no CPU and hands its memory back. No tray icon
 - **No installer, no dependencies** — one exe, ~85 KB
 
 ## Screenshots
@@ -59,8 +59,8 @@ Download `picky.exe` from [Releases](../../releases), or build from source:
 .\install.ps1
 ```
 
-That builds, installs to `%LOCALAPPDATA%\Picky`, registers, and adds a Start Menu
-shortcut. Install to a stable location rather than registering a build output —
+That builds, installs to `%LOCALAPPDATA%\Picky`, registers, adds a Start Menu
+shortcut, and starts Picky in the background. Install to a stable location rather than registering a build output —
 the registration stores an absolute path, so moving or deleting the exe later
 breaks link handling system-wide.
 
@@ -145,8 +145,22 @@ Picky registers itself as one, so its handler command is simply:
 ```
 
 Windows launches it with the URL as an argument. It resolves your browsers and
-profiles, applies your rules, shows the picker if needed, launches the real
-browser, and exits. Nothing stays in memory.
+profiles, applies your rules, shows the picker if needed, and launches the real
+browser.
+
+### Staying fast
+
+A fresh .NET process spends most of a click loading WinForms and GDI+ and
+compiling code before it can draw anything. So one copy of Picky stays running,
+started with Windows (registering adds it to Startup apps, where it can be
+switched off). A click still launches `picky.exe`, but when that copy is running
+the new process only hands the URL over and exits. It never loads WinForms, so
+the picker is up in about 50 ms.
+
+Between clicks the running copy has no timers and nothing to do, so it uses no
+CPU, and once the picker closes it returns its memory to Windows, which leaves a
+few MB. Browsers, profiles and settings are re-read on every link, so nothing
+it shows is stale. If it is not running, the next click starts it.
 
 ### Profile detection
 
@@ -165,7 +179,8 @@ Supported: Edge, Chrome, Brave, Vivaldi (profiles plus private mode), and Firefo
 
 ## Debugging
 
-- `picky.exe --keep <url>` — show the picker without dismissing it on focus loss
+- `picky.exe --keep <url>` — show the picker without dismissing it on focus loss; runs on its own, beside any background copy
+- `picky.exe --background` — start the background copy without showing anything
 - `picky.exe --demo` — placeholder profiles and sample rules; never writes config
 - Unhandled errors append to `%APPDATA%\Picky\error.log`
 
