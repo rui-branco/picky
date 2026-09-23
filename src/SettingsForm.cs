@@ -362,14 +362,14 @@ namespace Picky
             _target.SetBounds(Pad + 220, y + 3, 268, 28);
             _del.SetBounds(Pad + w - 78, y, 78, 34);
             _add.SetBounds(Pad + w - 170, y, 84, 34);
-            y += 34 + 22;
+            y += 34 + 46;
 
             _save.SetBounds(Pad + w - 100, y, 100, 34);
             // Room under the last row, so the buttons are not flush with the frame.
             // The hint rides the Save line: alone underneath it read as a stray
             // caption belonging to nothing.
             _yFooter = y + 8;
-            y += 34 + 26;
+            y += 34 + 18;
 
             _contentH = y;
             Invalidate();
