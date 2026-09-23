@@ -64,6 +64,12 @@ namespace Picky
             return FindWindowEx(MessageOnly, IntPtr.Zero, null, WindowTitle);
         }
 
+        public static bool IsRunning()
+        {
+            try { return Find() != IntPtr.Zero; }
+            catch { return false; }
+        }
+
         /// <summary>Passes the link to a running Picky. False means there is none
         /// to take it, and this process has to show the picker itself.</summary>
         public static bool Send(string url)
@@ -176,6 +182,17 @@ namespace Picky
         public static void Run()
         {
             Application.Run(new ApplicationContext());
+        }
+
+        /// <summary>
+        /// Starts the running copy in a process of its own when there is none, so
+        /// it outlives whichever window asked for it.
+        /// </summary>
+        public static void EnsureRunning()
+        {
+            if (Handoff.IsRunning()) return;
+            try { System.Diagnostics.Process.Start(Application.ExecutablePath, "--background"); }
+            catch { }
         }
 
         /// <summary>

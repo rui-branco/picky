@@ -79,6 +79,14 @@ namespace Picky
 
             if (argv.Count == 0)
             {
+                // Opening Picky gets the next link ready too: an install that
+                // predates the startup entry, or a copy that was stopped, would
+                // otherwise leave the first click to start from cold.
+                if (!AppConfig.DemoMode)
+                {
+                    Registration.EnsureStartup();
+                    Resident.EnsureRunning();
+                }
                 Application.Run(new SettingsForm());
                 return;
             }

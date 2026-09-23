@@ -64,7 +64,30 @@ namespace Picky
             // Started with Windows, so even the first click of the day finds it
             // running. Startup apps in Settings can still switch this off.
             using (RegistryKey k = Registry.CurrentUser.CreateSubKey(RunKey))
-                k.SetValue(AppName, "\"" + exe + "\" --background");
+                k.SetValue(AppName, StartupCommand(exe));
+        }
+
+        static string StartupCommand(string exe)
+        {
+            return "\"" + exe + "\" --background";
+        }
+
+        /// <summary>
+        /// Adds the startup entry to an install registered before it existed,
+        /// which an in-app update never re-registers. Switching it off in
+        /// Startup apps leaves the value in place, so that choice is kept.
+        /// </summary>
+        public static void EnsureStartup()
+        {
+            try
+            {
+                if (!IsRegistered()) return;
+                using (RegistryKey k = Registry.CurrentUser.CreateSubKey(RunKey))
+                {
+                    if (k.GetValue(AppName) == null) k.SetValue(AppName, StartupCommand(ExePath));
+                }
+            }
+            catch { }
         }
 
         public static void Unregister()
