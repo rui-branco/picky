@@ -83,7 +83,8 @@ Any tool that claims to do it for you is forging that hash, and Windows reverts 
 Opening settings checks the [Releases](../../releases) page in the background. When
 a release is newer than the running build, a bar appears under the title with an
 **Update** button: it downloads that release's `picky.exe`, moves the running one
-aside, swaps the new one in and restarts.
+aside, swaps the new one in and restarts. **Check for updates**, beside the
+status word at the top, asks again at any time.
 
 The repository is pinned in the source rather than read from config — an updater
 that can be pointed elsewhere by a settings file is a way to make Picky run
@@ -160,7 +161,7 @@ the picker is up in about 50 ms.
 Between clicks the running copy has no timers and nothing to do, so it uses no
 CPU, and once the picker closes it returns its memory to Windows, which leaves a
 few MB. Browsers, profiles and settings are re-read on every link, so nothing
-it shows is stale. If it is not running, the next click starts it.
+it shows is stale. If it is not running, opening Picky or the next click starts it.
 
 ### Profile detection
 
