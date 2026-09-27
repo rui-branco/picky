@@ -47,6 +47,7 @@ namespace Picky
         bool _registered;
 
         List<FileSystemWatcher> _watchers = new List<FileSystemWatcher>();
+        RegistryWatch _registry;   // browsers registering or leaving under ...\Clients
         Timer _rescan;   // debounces Local State churn
         Timer _poll;     // notices the default handler changing outside this app
 
@@ -292,6 +293,9 @@ namespace Picky
                 }
                 catch { }
             }
+
+            _registry = new RegistryWatch();
+            _registry.Changed += OnRegistryChanged;
         }
 
         void OnProfilesChanged(object sender, FileSystemEventArgs e)
@@ -300,6 +304,21 @@ namespace Picky
             try
             {
                 if (!IsHandleCreated || IsDisposed) return;
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    _rescan.Stop();
+                    _rescan.Start();
+                });
+            }
+            catch { }
+        }
+
+        void OnRegistryChanged(object sender, EventArgs e)
+        {
+            // Raised on the watch thread - the same hop and debounce as Local State.
+            try
+            {
+                if (!IsHandleCreated || IsDisposed || Disposing) return;
                 BeginInvoke((MethodInvoker)delegate
                 {
                     _rescan.Stop();
@@ -349,6 +368,11 @@ namespace Picky
         {
             base.OnActivated(e);
             SyncStatus(false);   // catches a default set in Windows Settings while we were away
+
+            // And whatever the registry watch cannot see, such as a browser's
+            // command changing under Classes. Rescan only redraws on a difference.
+            _rescan.Stop();
+            _rescan.Start();
         }
 
         // ---- updates ---------------------------------------------------------
@@ -484,6 +508,7 @@ namespace Picky
                     catch { }
                 }
                 _watchers.Clear();
+                if (_registry != null) _registry.Dispose();
                 if (_rescan != null) _rescan.Dispose();
                 if (_poll != null) _poll.Dispose();
                 if (_logo != null) _logo.Dispose();
