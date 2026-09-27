@@ -5,6 +5,7 @@ using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32;
 
 namespace Picky
 {
@@ -105,6 +106,11 @@ namespace Picky
 
         static List<Target> Anonymise(List<Target> real)
         {
+            // Browsers registered with Windows are whatever this machine happens
+            // to have installed - a dev build, a work tool - so a published
+            // screenshot keeps to the ones every reader knows.
+            real.RemoveAll(delegate(Target t) { return t.Id.StartsWith("registered|", StringComparison.Ordinal); });
+
             // A distinct label set per browser, so the demo never shows two
             // identically named profiles.
             string[][] labelSets = new string[][] {
@@ -144,6 +150,8 @@ namespace Picky
                 catch { }
             }
             try { ScanFirefox(list); }
+            catch { }
+            try { ScanRegistered(list); }
             catch { }
             return list;
         }
@@ -297,6 +305,183 @@ namespace Picky
             });
         }
 
+        const string ClientsKey = @"SOFTWARE\Clients\StartMenuInternet";
+
+        // Every other browser that registered itself with Windows (Forge Deck,
+        // Opera, Arc...). A client name is read once: HKCU wins over HKLM, and
+        // the 64-bit view over the 32-bit one.
+        static void ScanRegistered(List<Target> outList)
+        {
+            RegistryKey[] roots = new RegistryKey[] {
+                Registry.CurrentUser,
+                RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64),
+                RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32)
+            };
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (RegistryKey root in roots)
+            {
+                string[] names;
+                using (RegistryKey clients = root.OpenSubKey(ClientsKey))
+                {
+                    if (clients == null) continue;
+                    names = clients.GetSubKeyNames();
+                }
+
+                foreach (string name in names)
+                {
+                    if (!seen.Add(name)) continue;
+                    if (string.Equals(name, "Picky", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(name, "IEXPLORE.EXE", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    try
+                    {
+                        Target t = ReadRegistered(roots, root, name, outList);
+                        if (t != null) outList.Add(t);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        static Target ReadRegistered(RegistryKey[] roots, RegistryKey root, string name, List<Target> outList)
+        {
+            string display = null;
+            string progId = null;
+            string iconSpec = null;
+            string fallbackName = null;
+
+            using (RegistryKey client = root.OpenSubKey(ClientsKey + @"\" + name))
+            {
+                if (client == null) return null;
+                fallbackName = client.GetValue(null) as string;
+
+                using (RegistryKey caps = client.OpenSubKey("Capabilities"))
+                {
+                    if (caps != null) display = caps.GetValue("ApplicationName") as string;
+                }
+                using (RegistryKey urls = client.OpenSubKey(@"Capabilities\URLAssociations"))
+                {
+                    if (urls != null)
+                        progId = FirstNonEmpty(urls.GetValue("https") as string, urls.GetValue("http") as string);
+                }
+                using (RegistryKey icon = client.OpenSubKey("DefaultIcon"))
+                {
+                    if (icon != null) iconSpec = icon.GetValue(null) as string;
+                }
+            }
+
+            // A browser that cannot take a link is no use here.
+            if (string.IsNullOrEmpty(progId)) return null;
+            string command = ProgIdCommand(roots, progId);
+            if (string.IsNullOrEmpty(command)) return null;
+
+            string exe, args;
+            SplitCommand(command, out exe, out args);
+            if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) return null;
+
+            // Edge, Chrome, Firefox and the rest register too; the scans above
+            // already list them with their profiles.
+            string full = Path.GetFullPath(exe);
+            foreach (Target t in outList)
+            {
+                if (string.Equals(Path.GetFullPath(t.ExePath), full, StringComparison.OrdinalIgnoreCase))
+                    return null;
+            }
+
+            if (display != null && display.StartsWith("@")) display = LoadIndirect(display);
+            display = FirstNonEmpty(display, fallbackName, name);
+
+            Bitmap ico = TryDefaultIcon(iconSpec);
+            if (ico == null) ico = TryIcon(exe);
+
+            return new Target
+            {
+                Id = "registered|" + name.ToLowerInvariant(),
+                BrowserName = display,
+                ProfileLabel = display,
+                Subtitle = "",
+                ExePath = exe,
+                ArgsTemplate = args,
+                Image = ico
+            };
+        }
+
+        static string ProgIdCommand(RegistryKey[] roots, string progId)
+        {
+            string path = @"SOFTWARE\Classes\" + progId + @"\shell\open\command";
+            foreach (RegistryKey root in roots)
+            {
+                using (RegistryKey k = root.OpenSubKey(path))
+                {
+                    if (k == null) continue;
+                    string cmd = k.GetValue(null) as string;
+                    if (!string.IsNullOrEmpty(cmd)) return cmd;
+                }
+            }
+            return null;
+        }
+
+        // "C:\app.exe" --flag "%1"  ->  C:\app.exe  +  --flag {url}
+        static void SplitCommand(string command, out string exe, out string args)
+        {
+            string text = command.Trim();
+            string rest;
+            if (text.StartsWith("\""))
+            {
+                int end = text.IndexOf('"', 1);
+                if (end < 0) { exe = text.Substring(1); rest = ""; }
+                else { exe = text.Substring(1, end - 1); rest = text.Substring(end + 1); }
+            }
+            else
+            {
+                int space = text.IndexOf(' ');
+                if (space < 0) { exe = text; rest = ""; }
+                else { exe = text.Substring(0, space); rest = text.Substring(space + 1); }
+            }
+            exe = Environment.ExpandEnvironmentVariables(exe.Trim());
+
+            args = rest
+                .Replace("\"%1\"", "{url}").Replace("%1", "{url}")
+                .Replace("\"%L\"", "{url}").Replace("%L", "{url}")
+                .Replace("\"%l\"", "{url}").Replace("%l", "{url}");
+            if (args.IndexOf("{url}", StringComparison.Ordinal) < 0) args = args + " {url}";
+            args = args.Trim();
+        }
+
+        [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)]
+        static extern int SHLoadIndirectString(string source, StringBuilder outBuf, int outBufSize, IntPtr reserved);
+
+        // "@C:\app.exe,-123" style names point at a string resource.
+        static string LoadIndirect(string source)
+        {
+            StringBuilder sb = new StringBuilder(512);
+            if (SHLoadIndirectString(source, sb, sb.Capacity, IntPtr.Zero) != 0) return null;
+            return sb.ToString();
+        }
+
+        // DefaultIcon is "path,index": the path may be quoted or hold %vars%, and
+        // a negative index is a resource id rather than a position.
+        static Bitmap TryDefaultIcon(string spec)
+        {
+            if (string.IsNullOrEmpty(spec)) return null;
+            string path = spec.Trim();
+            int index = 0;
+            int comma = path.LastIndexOf(',');
+            if (comma >= 0)
+            {
+                int n;
+                if (int.TryParse(path.Substring(comma + 1).Trim(), out n))
+                {
+                    index = n;
+                    path = path.Substring(0, comma);
+                }
+            }
+            path = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
+            if (!File.Exists(path)) return null;
+            return TryIconAt(path, index);
+        }
+
         static List<ProfileInfo> ReadProfiles(string userDataDir)
         {
             List<ProfileInfo> res = new List<ProfileInfo>();
@@ -410,6 +595,24 @@ namespace Picky
 
         static Bitmap TryIcon(string exe)
         {
+            Bitmap best = TryIconAt(exe, 0);
+            if (best != null) return best;
+
+            try
+            {
+                using (Icon ic = Icon.ExtractAssociatedIcon(exe))
+                {
+                    if (ic != null)
+                        using (Bitmap tmp = ic.ToBitmap())
+                            return new Bitmap(tmp);
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        static Bitmap TryIconAt(string file, int index)
+        {
             // ExtractAssociatedIcon only ever yields 32x32, which looks mushy once
             // scaled. PrivateExtractIcons picks the best matching image out of the
             // exe's icon group, so ask for a large one and downscale cleanly.
@@ -419,7 +622,7 @@ namespace Picky
                 int[] ids = new int[1];
                 try
                 {
-                    int n = PrivateExtractIcons(exe, 0, want, want, handles, ids, 1, 0);
+                    int n = PrivateExtractIcons(file, index, want, want, handles, ids, 1, 0);
                     if (n > 0 && handles[0] != IntPtr.Zero)
                     {
                         try
@@ -433,17 +636,6 @@ namespace Picky
                 }
                 catch { }
             }
-
-            try
-            {
-                using (Icon ic = Icon.ExtractAssociatedIcon(exe))
-                {
-                    if (ic != null)
-                        using (Bitmap tmp = ic.ToBitmap())
-                            return new Bitmap(tmp);
-                }
-            }
-            catch { }
             return null;
         }
     }
