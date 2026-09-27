@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Choose which browser opens each link.</strong><br>
-  A Choosy-style browser chooser for Windows — in a single 85&nbsp;KB executable.
+  A Choosy-style browser chooser for Windows — in a single 128&nbsp;KB executable.
 </p>
 
 <p align="center">
@@ -32,6 +32,7 @@ Click a work link, it opens in your work profile. Click anything else, you choos
 ## Features
 
 - **Per-profile targets** — Chrome and Edge profiles are separate destinations, not just "Chrome"
+- **Every browser you have**: Opera, Arc, Forge Deck or anything else registered with Windows is in the picker too, with its own icon
 - **Real profile logos** — each entry uses the badged icon the browser itself puts on your taskbar
 - **Rules** — host patterns route silently, so the links you always know about never interrupt you
 - **Picker** — appears at the cursor; click, or press `1`–`9`
@@ -40,16 +41,32 @@ Click a work link, it opens in your work profile. Click anything else, you choos
 - **Self-updating** — settings checks Releases and installs a new version on click
 - **Keyboard-first** — arrows and `Enter`, `Esc` to cancel, `Shift` while clicking to force the picker
 - **Instant, and light between clicks** — a hidden copy answers each click in ~50 ms; between clicks it uses no CPU and hands its memory back. No tray icon
-- **No installer, no dependencies** — one exe, ~85 KB
+- **No installer, no dependencies** — one exe, ~128 KB
 
-## Screenshots
+## Settings
 
 <p align="center">
-  <img src="docs/settings.png" alt="Picky settings: appearance switches, a live preview of the menu, and rules" width="722">
+  <img src="docs/settings.png" alt="Picky settings, General page: whether Picky is your default browser" width="400">
+  <img src="docs/settings-picker.png" alt="Picky settings, Picker page: a live preview of the menu above its layout and size options" width="400">
+</p>
+<p align="center">
+  <img src="docs/settings-rules.png" alt="Picky settings, Rules page: host patterns and the browser each one opens in" width="400">
+  <img src="docs/settings-about.png" alt="Picky settings, About page: the version and a check for updates" width="400">
 </p>
 
-The preview in the middle is the real picker, drawn by the same code that draws
-the menu itself — so it cannot show you something a link would not.
+The settings window has a rail with four pages. Every change is saved the
+moment you make it, so there is no Save button to forget.
+
+- **General** says whether Picky is set up and is your default browser, and its
+  one button is always the next step from there
+- **Picker** shows the menu a link opens, with its layout, size and what it shows
+  below. Drag a logo in the preview to change the order
+- **Rules** lists your host patterns in the order they are tried. Drag a row to
+  reorder it, or remove it with the cross that appears as you point at it
+- **About** has the version and the check for updates
+
+The preview on the Picker page is the real picker, drawn by the same code that
+draws the menu itself, so it cannot show you something a link would not.
 
 ## Install
 
@@ -66,13 +83,13 @@ breaks link handling system-wide.
 
 If you downloaded the exe instead, put it somewhere permanent, then:
 
-1. Run `picky.exe` — the settings window opens
-2. Click **Setup** — writes to `HKCU` only, no administrator rights needed
-3. Click **Default** and assign **http** and **https** to Picky
+1. Run `picky.exe`, and the settings window opens on **General**
+2. Click **Set up**. It writes to `HKCU` only, so no administrator rights are needed
+3. Click **Open Settings** and assign **http** and **https** to Picky
 
-That button is the one word at the top right, and it tells you where you are:
-**Setup** before registering, **Default** once registered, **Change** once Picky
-is handling your links.
+The General page tells you where you are, and its button is always the next
+step: **Set up** before registering, **Open Settings** once registered, **Change**
+once Picky is handling your links.
 
 That last step is manual by design. Windows protects the default-browser setting
 with a per-user hash specifically so that no program can reassign it silently.
@@ -81,10 +98,10 @@ Any tool that claims to do it for you is forging that hash, and Windows reverts 
 ## Updates
 
 Opening settings checks the [Releases](../../releases) page in the background. When
-a release is newer than the running build, a bar appears under the title with an
-**Update** button: it downloads that release's `picky.exe`, moves the running one
-aside, swaps the new one in and restarts. **Check for updates**, beside the
-status word at the top, asks again at any time.
+a release is newer than the running build, an **Update** button appears at the
+bottom of the rail and on the About page: it downloads that release's `picky.exe`,
+moves the running one aside, swaps the new one in and restarts. **Check for
+updates**, on the About page, asks again at any time.
 
 The repository is pinned in the source rather than read from config — an updater
 that can be pointed elsewhere by a settings file is a way to make Picky run
@@ -104,8 +121,8 @@ is really a program.
 
 ### Rules
 
-Rules match the **hostname**, first match wins. Add them in the settings window,
-or edit `%APPDATA%\Picky\config.json`:
+Rules match the **hostname**, first match wins. Add them on the Rules page of the
+settings window, or edit `%APPDATA%\Picky\config.json`:
 
 ```json
 {
@@ -178,11 +195,17 @@ scrambled list. Launch arguments always use the directory key, never the label.
 Supported: Edge, Chrome, Brave, Vivaldi (profiles plus private mode), and Firefox
 (default plus private).
 
+Every other browser registered with Windows is listed too, such as Opera, Arc or
+Forge Deck. Picky reads its name, icon and the command it registered for opening
+links, so it appears with its own icon and opens the link the way it asked to.
+A browser with no profiles of its own is shown by its name alone.
+
 ## Debugging
 
 - `picky.exe --keep <url>` — show the picker without dismissing it on focus loss; runs on its own, beside any background copy
 - `picky.exe --background` — start the background copy without showing anything
 - `picky.exe --demo` — placeholder profiles and sample rules; never writes config
+- `picky.exe --page rules` opens settings on that page (`general`, `picker`, `rules` or `about`). With `--demo`, it is how `tools\make-screenshots.ps1` draws the pictures above
 - Unhandled errors append to `%APPDATA%\Picky\error.log`
 
 ## License
