@@ -48,10 +48,14 @@ namespace Picky
 
             // --keep pins the picker open instead of dismissing it on focus loss,
             // so it can be inspected without a real link click.
+            // --page <general|picker|rules|about> (or --page=picker) opens the
+            // settings window on that page, for a screenshot of each one.
             bool background = false;
+            string page = null;
             List<string> argv = new List<string>();
-            foreach (string a in args)
+            for (int i = 0; i < args.Length; i++)
             {
+                string a = args[i];
                 if (string.Equals(a, "--keep", StringComparison.OrdinalIgnoreCase))
                     PickerForm.AutoClose = false;
                 else if (string.Equals(a, "--background", StringComparison.OrdinalIgnoreCase))
@@ -62,6 +66,12 @@ namespace Picky
                     BrowserScanner.DemoMode = true;
                     AppConfig.DemoMode = true;
                 }
+                else if (string.Equals(a, "--page", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (i + 1 < args.Length) page = args[++i];
+                }
+                else if (a.StartsWith("--page=", StringComparison.OrdinalIgnoreCase))
+                    page = a.Substring("--page=".Length);
                 else
                     argv.Add(a);
             }
@@ -87,7 +97,7 @@ namespace Picky
                     Registration.EnsureStartup();
                     Resident.EnsureRunning();
                 }
-                Application.Run(new SettingsForm());
+                Application.Run(new SettingsForm(page));
                 return;
             }
 
