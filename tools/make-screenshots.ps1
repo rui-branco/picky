@@ -79,7 +79,13 @@ function Shoot([string[]]$argList, [string]$file, [bool]$round) {
     $p = Start-Process $exe -ArgumentList $argList -PassThru
     Start-Sleep -Milliseconds 2000
 
+    # The first start of a freshly built exe can take longer than that.
     $handles = [Cap]::Visible([uint32]$p.Id)
+    for ($i = 0; $handles.Count -eq 0 -and $i -lt 24; $i++) {
+        Start-Sleep -Milliseconds 250
+        $handles = [Cap]::Visible([uint32]$p.Id)
+        if ($handles.Count -gt 0) { Start-Sleep -Milliseconds 500 }   # let it paint
+    }
     if ($handles.Count -eq 0) { try { $p.Kill() } catch { }; throw "no window for: $argList" }
 
     $bmp = [Cap]::Shot($handles[0])
@@ -93,11 +99,15 @@ function Shoot([string[]]$argList, [string]$file, [bool]$round) {
         $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
         $g.Clear([System.Drawing.Color]::Transparent)
         $gp = New-Object System.Drawing.Drawing2D.GraphicsPath
-        $d = 24
+        # The picker's 8px corner. PrintWindow draws the full rectangle, not
+        # the corners Windows 11 rounds away, so they are cut here to match.
+        # The path runs to the far edge itself: a clip is not antialiased, and
+        # stopping a pixel short cut the hairline off the right and bottom.
+        $d = 16
         $gp.AddArc(0, 0, $d, $d, 180, 90)
-        $gp.AddArc($w - $d - 1, 0, $d, $d, 270, 90)
-        $gp.AddArc($w - $d - 1, $h - $d - 1, $d, $d, 0, 90)
-        $gp.AddArc(0, $h - $d - 1, $d, $d, 90, 90)
+        $gp.AddArc($w - $d, 0, $d, $d, 270, 90)
+        $gp.AddArc($w - $d, $h - $d, $d, $d, 0, 90)
+        $gp.AddArc(0, $h - $d, $d, $d, 90, 90)
         $gp.CloseFigure()
         $g.SetClip($gp)
         $g.DrawImage($bmp, 0, 0)
@@ -114,5 +124,8 @@ function Shoot([string[]]$argList, [string]$file, [bool]$round) {
 
 Write-Host "Rendering (PrintWindow, no screen scraping):"
 Shoot @("--demo") "settings.png" $false
+Shoot @("--demo", "--page", "picker") "settings-picker.png" $false
+Shoot @("--demo", "--page", "rules") "settings-rules.png" $false
+Shoot @("--demo", "--page", "about") "settings-about.png" $false
 Shoot @("--demo", "--keep", "https://developer.mozilla.org/en-US/docs/Web") "picker.png" $true
 Write-Host "Done -> $docs"
