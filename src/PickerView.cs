@@ -13,7 +13,12 @@ namespace Picky
     /// </summary>
     public class PickerView : IDisposable
     {
-        const int DesignCorner = 12;
+        /// <summary>
+        /// Not scaled: on Windows 11 the desktop manager rounds the window at
+        /// a fixed 8px, and the painted edge has to follow the same curve.
+        /// </summary>
+        const int Corner = 8;
+        const int DesignTileRadius = 6;
         const int DesignRowH = 52;
         const int DesignHeaderH = 46;
         const int DesignPadX = 12;
@@ -23,7 +28,7 @@ namespace Picky
         const int DesignEdgePad = 5;
 
         readonly double _scale;
-        readonly int _corner;
+        readonly int _tileRadius;
         readonly int _rowH;
         readonly int _headerH;
         readonly int _padX;
@@ -34,18 +39,6 @@ namespace Picky
         int _pad;
         int _rowX;
 
-        static readonly Color CBack = ColorTranslator.FromHtml("#1C1D20");
-        static readonly Color CText = ColorTranslator.FromHtml("#F1F3F4");
-        static readonly Color CDim = ColorTranslator.FromHtml("#9AA0A6");
-        static readonly Color CDimmer = ColorTranslator.FromHtml("#6E7378");
-        static readonly Color CSel = ColorTranslator.FromHtml("#2E3034");
-        static readonly Color CHover = ColorTranslator.FromHtml("#26282C");
-        static readonly Color CAccent = ColorTranslator.FromHtml("#8AB4F8");
-        static readonly Color CBorder = ColorTranslator.FromHtml("#34363B");
-        static readonly Color CRule = ColorTranslator.FromHtml("#26282C");
-        static readonly Color CChip = ColorTranslator.FromHtml("#303236");
-        static readonly Color CTile = ColorTranslator.FromHtml("#232529");
-
         readonly List<Target> _targets;
         readonly string _url;
         readonly AppConfig _cfg;
@@ -54,7 +47,8 @@ namespace Picky
         Font _fSub;
         Font _fHost;
         Font _fChip;
-        Font _fTile;
+        readonly int _labelH;
+        readonly int _subH;
 
         bool _row;
         bool _labels;
@@ -64,8 +58,8 @@ namespace Picky
         int _w;
         int _h;
 
-        /// <summary>Scaled corner radius for the window region.</summary>
-        public int CornerRadius { get { return _corner; } }
+        /// <summary>Corner radius for the window region, where Windows does not round it.</summary>
+        public int CornerRadius { get { return Corner; } }
 
         public PickerView(List<Target> targets, string url, AppConfig cfg)
         {
@@ -79,7 +73,7 @@ namespace Picky
             if (s > 2.0) s = 2.0;
             _scale = s;
 
-            _corner = S(DesignCorner);
+            _tileRadius = S(DesignTileRadius);
             _rowH = S(DesignRowH);
             _headerH = S(DesignHeaderH);
             _padX = S(DesignPadX);
@@ -88,11 +82,18 @@ namespace Picky
             _rowInset = S(DesignRowInset);
             _edgePad = S(DesignEdgePad);
 
-            _fLabel = MakeFont((float)(10.5 * _scale));
-            _fSub = MakeFont((float)(8.25 * _scale));
-            _fHost = MakeFont((float)(9.75 * _scale));
-            _fChip = MakeFont((float)(8.0 * _scale));
-            _fTile = MakeFont((float)(9.0 * _scale));
+            // Sizes in pixels at the designed scale: 13.5 for a name, 11.5 for
+            // the line under it, 12 for the address.
+            _fLabel = MakeFont(13.5);
+            _fSub = MakeFont(11.5);
+            _fHost = MakeFont(12);
+            // 8pt, as before: the shortcut digits, and the browser under a tile,
+            // where "Microsoft Edge" has only a 94px tile to fit in.
+            _fChip = MakeFont(32 / 3.0);
+
+            // A two-line entry is centred as one block, so both heights are needed.
+            _labelH = TextRenderer.MeasureText("Ag", _fLabel).Height;
+            _subH = TextRenderer.MeasureText("Ag", _fSub).Height;
         }
 
         /// <summary>Scales a design-size pixel value by the configured scale.</summary>
@@ -101,21 +102,11 @@ namespace Picky
             return (int)Math.Round(designPx * _scale);
         }
 
-        static Font MakeFont(float size)
+        /// <summary>The family face at a design size in pixels, scaled like everything else.</summary>
+        Font MakeFont(double designPx)
         {
-            // Segoe UI Variable is the Windows 11 face; fall back cleanly on 10.
-            string[] prefs = new string[] { "Segoe UI Variable Display", "Segoe UI" };
-            foreach (string name in prefs)
-            {
-                try
-                {
-                    Font f = new Font(name, size, FontStyle.Regular);
-                    if (string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)) return f;
-                    f.Dispose();
-                }
-                catch { }
-            }
-            return new Font(FontFamily.GenericSansSerif, size, FontStyle.Regular);
+            // Theme sizes are points; at the 96 DPI GDI reports here, a point is 4/3 px.
+            return Theme.Font((float)(designPx * 0.75 * _scale), FontStyle.Regular);
         }
 
         public Size Size { get { return new Size(_w, _h); } }
@@ -199,18 +190,6 @@ namespace Picky
             return -1;
         }
 
-        public static GraphicsPath RoundedPath(RectangleF r, float radius)
-        {
-            GraphicsPath p = new GraphicsPath();
-            float d = radius * 2;
-            p.AddArc(r.X, r.Y, d, d, 180, 90);
-            p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
-            p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
-            p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
-            p.CloseFigure();
-            return p;
-        }
-
         public void Paint(Graphics g, int sel, int hover)
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -218,9 +197,9 @@ namespace Picky
 
             // Filling the rounded path rather than clearing the whole surface lets
             // the preview render onto a transparent bitmap with the same code the
-            // window uses, where the region clips the corners away instead.
-            using (GraphicsPath p = RoundedPath(new RectangleF(0, 0, _w, _h), _corner))
-            using (SolidBrush b = new SolidBrush(CBack))
+            // window uses, where Windows or the region clips the corners instead.
+            using (GraphicsPath p = Theme.Rounded(new RectangleF(0, 0, _w, _h), Corner))
+            using (SolidBrush b = new SolidBrush(Theme.Popover))
                 g.FillPath(b, p);
 
             if (_measuredHeaderH > 0) DrawHeader(g);
@@ -228,9 +207,11 @@ namespace Picky
             for (int i = 0; i < _targets.Count; i++)
                 DrawCell(g, i, sel, hover);
 
-            // Hairline border traced along the rounded edge.
-            using (GraphicsPath p = RoundedPath(new RectangleF(0.5f, 0.5f, _w - 1f, _h - 1f), _corner))
-            using (Pen bp = new Pen(CBorder, 1f))
+            // Hairline edge along the rounded outline. On Windows 11 the desktop
+            // manager draws its border in the same colour over it, so the popup
+            // and the preview, which has no such border, look the same.
+            using (GraphicsPath p = Theme.Rounded(new RectangleF(0.5f, 0.5f, _w - 1f, _h - 1f), Corner))
+            using (Pen bp = new Pen(Theme.PopoverEdge, 1f))
                 g.DrawPath(bp, p);
         }
 
@@ -242,10 +223,11 @@ namespace Picky
             TextFormatFlags f = TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                               | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
 
+            // Context, not a choice: muted, so the eye goes to the rows.
             Rectangle r = new Rectangle(_padX + S(6), 0, _w - (_padX + S(6)) * 2, _measuredHeaderH);
-            TextRenderer.DrawText(g, host, _fHost, r, CAccent, f);
+            TextRenderer.DrawText(g, host, _fHost, r, Theme.Dim, f);
 
-            using (Pen p = new Pen(CRule, 1f))
+            using (Pen p = new Pen(Theme.Line, 1f))
                 g.DrawLine(p, _padX, _measuredHeaderH - 1, _w - _padX, _measuredHeaderH - 1);
         }
 
@@ -268,15 +250,35 @@ namespace Picky
                 RectangleF fill = (_row || !_labels)
                     ? new RectangleF(r.X + ins, r.Y + ins, r.Width - ins * 2, r.Height - ins * 2)
                     : new RectangleF(_rowInset, r.Y + ins, _w - _rowInset * 2, r.Height - ins * 2);
-                Color shade = selected ? CSel : (hovered ? CHover : CTile);
-                using (GraphicsPath p = RoundedPath(fill, S(9)))
+                Color shade = selected ? Theme.AccentWash : (hovered ? Theme.HoverWash : Theme.Field);
+                using (GraphicsPath p = Theme.Rounded(fill, _tileRadius))
                 using (SolidBrush b = new SolidBrush(shade))
                     g.FillPath(b, p);
+
+                // The selection is what Enter opens, so it is ringed as well as
+                // tinted: it has to read at a glance beside a row the pointer is on.
+                if (selected)
+                {
+                    RectangleF ring = new RectangleF(fill.X + 0.5f, fill.Y + 0.5f, fill.Width - 1f, fill.Height - 1f);
+                    using (GraphicsPath p = Theme.Rounded(ring, _tileRadius - 0.5f))
+                    using (Pen pen = new Pen(Theme.Accent, 1f))
+                        g.DrawPath(pen, p);
+                }
             }
 
             if (_row && _labels) DrawTile(g, i, r, selected);
             else if (_labels) DrawListRow(g, i, r, selected);
             else DrawIconOnly(g, i, r, selected);
+        }
+
+        /// <summary>
+        /// A browser with no profiles of its own - Firefox, or one known only
+        /// from its registration with Windows - is its own name. Printing the
+        /// browser under it would say the same word twice.
+        /// </summary>
+        static bool SingleProfile(Target t)
+        {
+            return string.Equals(t.ProfileLabel, t.BrowserName, StringComparison.Ordinal);
         }
 
         void DrawIcon(Graphics g, Target t, Rectangle box)
@@ -310,21 +312,25 @@ namespace Picky
 
             DrawIcon(g, t, new Rectangle(r.X + (r.Width - size) / 2, r.Y + S(10), size, size));
 
+            // No side padding: centred text keeps clear of the tile's edge anyway,
+            // and those few pixels are what a browser's full name needs here.
             TextFormatFlags f = TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis
-                              | TextFormatFlags.NoPrefix;
+                              | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
 
             int nameY = S(48);
             int m = S(6);
-            TextRenderer.DrawText(g, t.ProfileLabel, _fTile,
-                new Rectangle(r.X + m, r.Y + nameY, r.Width - m * 2, S(18)), CText, f);
+            TextRenderer.DrawText(g, t.ProfileLabel, _fLabel,
+                new Rectangle(r.X + m, r.Y + nameY, r.Width - m * 2, _labelH), Theme.Text, f);
 
-            if (_cfg.ShowBrowserName)
+            // Left empty rather than centring the name alone, so every name in
+            // the strip stays on one line with its neighbours.
+            if (_cfg.ShowBrowserName && !SingleProfile(t))
                 TextRenderer.DrawText(g, t.BrowserName, _fChip,
-                    new Rectangle(r.X + m, r.Y + S(66), r.Width - m * 2, S(16)), CDim, f);
+                    new Rectangle(r.X + m, r.Y + S(66), r.Width - m * 2, S(16)), Theme.Dim, f);
 
             if (i >= 9) return;
             TextRenderer.DrawText(g, (i + 1).ToString(), _fChip,
-                new Rectangle(r.Right - S(20), r.Y + S(4), S(16), S(16)), selected ? CDim : CDimmer,
+                new Rectangle(r.Right - S(20), r.Y + S(4), S(16), S(16)), selected ? Theme.Dim : Theme.Dimmer,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
         }
 
@@ -344,7 +350,8 @@ namespace Picky
 
             // The second line is whichever of the browser and the account is
             // wanted and present; with neither, the name takes the row alone.
-            string second = _cfg.ShowBrowserName ? t.BrowserName : null;
+            // A browser that is its own name never repeats it there.
+            string second = _cfg.ShowBrowserName && !SingleProfile(t) ? t.BrowserName : null;
             if (!string.IsNullOrEmpty(t.Subtitle))
             {
                 second = string.IsNullOrEmpty(second)
@@ -354,31 +361,27 @@ namespace Picky
             if (string.IsNullOrEmpty(second))
             {
                 TextRenderer.DrawText(g, t.ProfileLabel, _fLabel,
-                    new Rectangle(x, r.Y, textW, r.Height), CText,
+                    new Rectangle(x, r.Y, textW, r.Height), Theme.Text,
                     f | TextFormatFlags.VerticalCenter);
             }
             else
             {
+                // Both lines centred in the row as one block.
+                int top = r.Y + (r.Height - _labelH - _subH) / 2;
                 TextRenderer.DrawText(g, t.ProfileLabel, _fLabel,
-                    new Rectangle(x, r.Y + S(8), textW, S(19)), CText, f);
+                    new Rectangle(x, top, textW, _labelH), Theme.Text, f);
                 TextRenderer.DrawText(g, second, _fSub,
-                    new Rectangle(x, r.Y + S(27), textW, S(17)), CDim, f);
+                    new Rectangle(x, top + _labelH, textW, _subH), Theme.Dim, f);
             }
 
             if (i < 9)
             {
-                RectangleF chip = new RectangleF(
-                    _w - _padX - _chipW - S(4), r.Y + (r.Height - _chipW) / 2f, _chipW, _chipW);
-                if (selected)
-                {
-                    using (GraphicsPath p = RoundedPath(chip, S(6)))
-                    using (SolidBrush b = new SolidBrush(CChip))
-                        g.FillPath(b, p);
-                }
+                Rectangle badge = Rectangle.Round(new RectangleF(
+                    _w - _padX - _chipW - S(4), r.Y + (r.Height - _chipW) / 2f, _chipW, _chipW));
                 TextFormatFlags fn = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
                                    | TextFormatFlags.NoPrefix;
                 TextRenderer.DrawText(g, (i + 1).ToString(), _fChip,
-                    Rectangle.Round(chip), selected ? CDim : CDimmer, fn);
+                    badge, selected ? Theme.Dim : Theme.Dimmer, fn);
             }
         }
 
@@ -388,7 +391,6 @@ namespace Picky
             if (_fSub != null) { _fSub.Dispose(); _fSub = null; }
             if (_fHost != null) { _fHost.Dispose(); _fHost = null; }
             if (_fChip != null) { _fChip.Dispose(); _fChip = null; }
-            if (_fTile != null) { _fTile.Dispose(); _fTile = null; }
         }
     }
 

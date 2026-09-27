@@ -19,8 +19,24 @@ namespace Picky
         [DllImport("gdi32.dll")]
         static extern bool DeleteObject(IntPtr hObject);
 
+        [DllImport("dwmapi.dll")]
+        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+        [DllImport("ntdll.dll")]
+        static extern int RtlGetVersion(ref OSVERSIONINFO info);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct OSVERSIONINFO
+        {
+            public int Size, Major, Minor, Build, Platform;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string ServicePack;
+        }
+
         const int CS_DROPSHADOW = 0x00020000;
         const int WM_GETMINMAXINFO = 0x0024;
+        const int DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWA_BORDER_COLOR = 34;
+        const int DWMWCP_ROUND = 2;
 
         [StructLayout(LayoutKind.Sequential)]
         struct POINTS
@@ -46,8 +62,16 @@ namespace Picky
         int _hover = -1;
         bool _launched;
         bool _everActivated;
+        bool _dwmRound;   // the desktop manager took the corners, so no region is cut
 
         public static bool AutoClose = true;
+
+        /// <summary>
+        /// Windows 11 rounds a popup on request, with a smooth edge and a
+        /// shadow that follows the curve. Windows 10 cannot, and gets a cut
+        /// region and the class shadow instead.
+        /// </summary>
+        static readonly bool DwmRounds = IsWindows11();
 
         // There is deliberately no opening animation. The picker can be launched
         // as a fresh process by a click, and the only two ways to animate that first
@@ -78,7 +102,7 @@ namespace Picky
             StartPosition = FormStartPosition.Manual;
             ShowInTaskbar = false;
             TopMost = true;
-            BackColor = ColorTranslator.FromHtml("#1C1D20");
+            BackColor = Theme.Popover;
             DoubleBuffered = true;
             KeyPreview = true;
             Text = "Picky";
@@ -95,7 +119,9 @@ namespace Picky
             get
             {
                 CreateParams cp = base.CreateParams;
-                cp.ClassStyle |= CS_DROPSHADOW;
+                // On 11 the rounded frame brings its own shadow; the class one
+                // would be a second, square-cornered shadow behind it.
+                if (!DwmRounds) cp.ClassStyle |= CS_DROPSHADOW;
                 return cp;
             }
         }
@@ -103,7 +129,39 @@ namespace Picky
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            ApplyRoundedRegion();
+            if (DwmRounds) ApplyDwmCorners();
+            if (!_dwmRound) ApplyRoundedRegion();
+        }
+
+        /// <summary>
+        /// Environment.OSVersion stops at 6.2 for a program without a
+        /// compatibility manifest, so the build comes from the kernel.
+        /// </summary>
+        static bool IsWindows11()
+        {
+            try
+            {
+                OSVERSIONINFO v = new OSVERSIONINFO();
+                v.Size = Marshal.SizeOf(typeof(OSVERSIONINFO));
+                return RtlGetVersion(ref v) == 0 && v.Major >= 10 && v.Build >= 22000;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Rounded by the desktop manager, antialiased where a region is jagged,
+        /// with its border in the popover's edge colour rather than the accent.
+        /// </summary>
+        void ApplyDwmCorners()
+        {
+            try
+            {
+                int round = DWMWCP_ROUND;
+                _dwmRound = DwmSetWindowAttribute(Handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, 4) == 0;
+                int border = ColorTranslator.ToWin32(Theme.PopoverEdge);   // COLORREF
+                DwmSetWindowAttribute(Handle, DWMWA_BORDER_COLOR, ref border, 4);
+            }
+            catch { _dwmRound = false; }
         }
 
         /// <summary>
@@ -131,7 +189,7 @@ namespace Picky
             base.OnSizeChanged(e);
             // The rounded region is cut to a specific size; anything that resizes
             // the window has to have it cut again or the corners stop matching.
-            if (IsHandleCreated) ApplyRoundedRegion();
+            if (IsHandleCreated && !_dwmRound) ApplyRoundedRegion();
         }
 
         void ApplyRoundedRegion()
