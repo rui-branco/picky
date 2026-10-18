@@ -142,7 +142,7 @@ namespace Picky
             _list.Items.Clear();
             foreach (Rule r in _form.Config.Rules)
             {
-                Target t = targets.Find(delegate(Target x) { return x.Id == r.TargetId; });
+                Target t = AppConfig.FindTarget(targets, r.TargetId);
                 RuleRow row = new RuleRow();
                 row.Rule = r;
                 row.Pattern = r.Pattern;

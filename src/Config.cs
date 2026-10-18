@@ -82,13 +82,43 @@ namespace Picky
             foreach (string id in Order)
             {
                 Target t = targets.Find(delegate(Target x) { return x.Id == id; });
-                if (t != null && !ordered.Contains(t)) ordered.Add(t);
+                if (t != null)
+                {
+                    if (!ordered.Contains(t)) ordered.Add(t);
+                    continue;
+                }
+
+                // A browser saved before it listed its profiles keeps its place,
+                // now held by all of them.
+                foreach (Target p in targets)
+                {
+                    if (IsProfileOf(p, id) && !ordered.Contains(p)) ordered.Add(p);
+                }
             }
             foreach (Target t in targets)
             {
                 if (!ordered.Contains(t)) ordered.Add(t);
             }
             return ordered;
+        }
+
+        /// <summary>
+        /// The target a saved id points at. An id saved before its browser
+        /// listed profiles finds that browser's first profile.
+        /// </summary>
+        public static Target FindTarget(List<Target> targets, string id)
+        {
+            Target t = targets.Find(delegate(Target x) { return x.Id == id; });
+            if (t != null || id == null || id.EndsWith("|__private")) return t;
+            return targets.Find(delegate(Target x) { return IsProfileOf(x, id); });
+        }
+
+        // A profile's id is its browser's id and "|" and the profile's key.
+        static bool IsProfileOf(Target t, string id)
+        {
+            return t.Id != null
+                && t.Id.StartsWith(id + "|", StringComparison.Ordinal)
+                && !t.Id.EndsWith("|__private");
         }
 
         public static string Dir

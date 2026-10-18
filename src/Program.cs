@@ -164,7 +164,7 @@ namespace Picky
                 string targetId = cfg.MatchRule(url);
                 if (!string.IsNullOrEmpty(targetId))
                 {
-                    Target match = targets.Find(delegate(Target x) { return x.Id == targetId; });
+                    Target match = AppConfig.FindTarget(targets, targetId);
                     if (match != null)
                     {
                         Launcher.Launch(match, url);

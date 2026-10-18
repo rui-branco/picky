@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -55,6 +57,19 @@ namespace Picky
         public string Dir;
         public string Label;
         public string Email;
+    }
+
+    /// <summary>A profile a registered browser lists under its client key.</summary>
+    class RegisteredProfile
+    {
+        public string Key;
+        public string Name;
+        public string Exe;
+        public string Args;
+        public int Order;
+        public string Color;
+        public string Initials;
+        public string ImagePath;
     }
 
     class ChromiumBrowser
@@ -334,17 +349,13 @@ namespace Picky
                     if (string.Equals(name, "Picky", StringComparison.OrdinalIgnoreCase)) continue;
                     if (string.Equals(name, "IEXPLORE.EXE", StringComparison.OrdinalIgnoreCase)) continue;
 
-                    try
-                    {
-                        Target t = ReadRegistered(roots, root, name, outList);
-                        if (t != null) outList.Add(t);
-                    }
+                    try { ReadRegistered(roots, root, name, outList); }
                     catch { }
                 }
             }
         }
 
-        static Target ReadRegistered(RegistryKey[] roots, RegistryKey root, string name, List<Target> outList)
+        static void ReadRegistered(RegistryKey[] roots, RegistryKey root, string name, List<Target> outList)
         {
             string display = null;
             string progId = null;
@@ -353,7 +364,7 @@ namespace Picky
 
             using (RegistryKey client = root.OpenSubKey(ClientsKey + @"\" + name))
             {
-                if (client == null) return null;
+                if (client == null) return;
                 fallbackName = client.GetValue(null) as string;
 
                 using (RegistryKey caps = client.OpenSubKey("Capabilities"))
@@ -372,13 +383,13 @@ namespace Picky
             }
 
             // A browser that cannot take a link is no use here.
-            if (string.IsNullOrEmpty(progId)) return null;
+            if (string.IsNullOrEmpty(progId)) return;
             string command = ProgIdCommand(roots, progId);
-            if (string.IsNullOrEmpty(command)) return null;
+            if (string.IsNullOrEmpty(command)) return;
 
             string exe, args;
             SplitCommand(command, out exe, out args);
-            if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) return null;
+            if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) return;
 
             // Edge, Chrome, Firefox and the rest register too; the scans above
             // already list them with their profiles.
@@ -386,7 +397,7 @@ namespace Picky
             foreach (Target t in outList)
             {
                 if (string.Equals(Path.GetFullPath(t.ExePath), full, StringComparison.OrdinalIgnoreCase))
-                    return null;
+                    return;
             }
 
             if (display != null && display.StartsWith("@")) display = LoadIndirect(display);
@@ -395,16 +406,217 @@ namespace Picky
             Bitmap ico = TryDefaultIcon(iconSpec);
             if (ico == null) ico = TryIcon(exe);
 
-            return new Target
+            List<RegisteredProfile> profiles = ReadRegisteredProfiles(root, name);
+            if (profiles.Count == 0)
             {
-                Id = "registered|" + name.ToLowerInvariant(),
-                BrowserName = display,
-                ProfileLabel = display,
-                Subtitle = "",
-                ExePath = exe,
-                ArgsTemplate = args,
-                Image = ico
-            };
+                outList.Add(new Target
+                {
+                    Id = "registered|" + name.ToLowerInvariant(),
+                    BrowserName = display,
+                    ProfileLabel = display,
+                    Subtitle = "",
+                    ExePath = exe,
+                    ArgsTemplate = args,
+                    Image = ico
+                });
+                return;
+            }
+
+            // A browser that lists its profiles gets an entry for each, like
+            // a Chromium profile: the browser's icon with the profile's badge.
+            foreach (RegisteredProfile p in profiles)
+            {
+                outList.Add(new Target
+                {
+                    Id = "registered|" + name.ToLowerInvariant() + "|" + p.Key.ToLowerInvariant(),
+                    BrowserName = display,
+                    ProfileLabel = p.Name,
+                    Subtitle = "",
+                    ExePath = p.Exe,
+                    ArgsTemplate = p.Args,
+                    Image = BadgedIcon(ico, p.ImagePath, p.Color, p.Initials)
+                });
+            }
+        }
+
+        // Profiles\<key> under the client: Name and Command, with Order, Color,
+        // Initials and Image optional. One that cannot open a link is left out,
+        // and one unreadable entry never hides the rest.
+        static List<RegisteredProfile> ReadRegisteredProfiles(RegistryKey root, string name)
+        {
+            List<RegisteredProfile> res = new List<RegisteredProfile>();
+            using (RegistryKey profiles = root.OpenSubKey(ClientsKey + @"\" + name + @"\Profiles"))
+            {
+                if (profiles == null) return res;
+
+                foreach (string key in profiles.GetSubKeyNames())
+                {
+                    try
+                    {
+                        using (RegistryKey k = profiles.OpenSubKey(key))
+                        {
+                            if (k == null) continue;
+                            string label = k.GetValue("Name") as string;
+                            string command = k.GetValue("Command") as string;
+                            if (string.IsNullOrEmpty(label) || string.IsNullOrEmpty(command)) continue;
+
+                            string exe, args;
+                            SplitCommand(command, out exe, out args);
+                            if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) continue;
+
+                            int order;
+                            if (!int.TryParse(k.GetValue("Order") as string, out order)) order = int.MaxValue;
+
+                            res.Add(new RegisteredProfile
+                            {
+                                Key = key,
+                                Name = label,
+                                Exe = exe,
+                                Args = args,
+                                Order = order,
+                                Color = k.GetValue("Color") as string,
+                                Initials = k.GetValue("Initials") as string,
+                                ImagePath = k.GetValue("Image") as string
+                            });
+                        }
+                    }
+                    catch { }
+                }
+            }
+            res.Sort(CompareRegisteredProfiles);
+            return res;
+        }
+
+        static int CompareRegisteredProfiles(RegisteredProfile a, RegisteredProfile b)
+        {
+            if (a.Order != b.Order) return a.Order.CompareTo(b.Order);
+            return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // The size Chromium writes its profile icons at.
+        const int BadgeCanvas = 64;
+
+        // A registered profile has no icon of its own, so draw one the way
+        // Chromium does: the browser's logo with the profile's avatar in a
+        // round badge at the bottom right. With no logo the avatar fills it.
+        static Bitmap BadgedIcon(Bitmap appIcon, string imagePath, string color, string initials)
+        {
+            Bitmap avatar = null;
+            Bitmap res = null;
+            try
+            {
+                avatar = TryAvatar(imagePath);
+                res = new Bitmap(BadgeCanvas, BadgeCanvas, PixelFormat.Format32bppArgb);
+                using (Graphics g = Graphics.FromImage(res))
+                {
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+
+                    Rectangle badge = new Rectangle(0, 0, BadgeCanvas, BadgeCanvas);
+                    if (appIcon != null)
+                    {
+                        g.DrawImage(appIcon, badge);
+
+                        // A transparent ring parts the badge from the logo.
+                        g.CompositingMode = CompositingMode.SourceCopy;
+                        using (SolidBrush clear = new SolidBrush(Color.Transparent))
+                            g.FillEllipse(clear, BadgeCanvas - 36, BadgeCanvas - 36, 36, 36);
+                        g.CompositingMode = CompositingMode.SourceOver;
+
+                        // Centred in the cut-out, so the ring is even all round.
+                        badge = new Rectangle(BadgeCanvas - 33, BadgeCanvas - 33, 30, 30);
+                    }
+
+                    if (avatar != null)
+                    {
+                        // Centre-cropped to a square at the badge's size, then
+                        // painted as a round fill: a clip would leave a jagged edge.
+                        int side = Math.Min(avatar.Width, avatar.Height);
+                        using (Bitmap square = new Bitmap(badge.Width, badge.Height, PixelFormat.Format32bppArgb))
+                        {
+                            using (Graphics sg = Graphics.FromImage(square))
+                            using (ImageAttributes wrap = new ImageAttributes())
+                            {
+                                sg.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                                sg.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                                // Scaling samples past the crop's edge; mirroring keeps it from fading.
+                                wrap.SetWrapMode(WrapMode.TileFlipXY);
+                                sg.DrawImage(avatar, new Rectangle(0, 0, badge.Width, badge.Height),
+                                    (avatar.Width - side) / 2, (avatar.Height - side) / 2, side, side,
+                                    GraphicsUnit.Pixel, wrap);
+                            }
+                            using (TextureBrush tb = new TextureBrush(square))
+                            {
+                                tb.TranslateTransform(badge.X, badge.Y);
+                                g.FillEllipse(tb, badge);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        using (SolidBrush fill = new SolidBrush(BadgeColor(color)))
+                            g.FillEllipse(fill, badge);
+
+                        string text = initials == null ? "" : initials.Trim();
+                        if (text.Length == 0) text = "?";
+                        if (text.Length > 2) text = text.Substring(0, 2);
+                        text = text.ToUpperInvariant();
+
+                        // Centred on the letters' own outline: a font's line box sets them off centre.
+                        using (FontFamily family = new FontFamily("Segoe UI"))
+                        using (GraphicsPath path = new GraphicsPath())
+                        {
+                            path.AddString(text, family, (int)FontStyle.Bold, badge.Height * 0.4f, PointF.Empty, StringFormat.GenericTypographic);
+                            RectangleF ink = path.GetBounds();
+                            using (Matrix m = new Matrix())
+                            {
+                                m.Translate(badge.X + (badge.Width - ink.Width) / 2f - ink.X,
+                                    badge.Y + (badge.Height - ink.Height) / 2f - ink.Y);
+                                path.Transform(m);
+                            }
+                            g.FillPath(Brushes.White, path);
+                        }
+                    }
+                }
+                return res;
+            }
+            catch
+            {
+                if (res != null) res.Dispose();
+                return appIcon;
+            }
+            finally
+            {
+                if (avatar != null) avatar.Dispose();
+            }
+        }
+
+        static Color BadgeColor(string html)
+        {
+            string text = html == null ? "" : html.Trim();
+            if (text.Length > 0)
+            {
+                try { return ColorTranslator.FromHtml(text); }
+                catch { }
+            }
+            return Color.FromArgb(0x2c, 0x74, 0xbe);
+        }
+
+        // Read through a copy so the file is never held open: the browser
+        // deletes avatars it no longer uses.
+        static Bitmap TryAvatar(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            try
+            {
+                byte[] bytes = File.ReadAllBytes(path);
+                using (MemoryStream ms = new MemoryStream(bytes))
+                using (Image img = Image.FromStream(ms))
+                    return new Bitmap(img);
+            }
+            catch { }
+            return null;
         }
 
         static string ProgIdCommand(RegistryKey[] roots, string progId)

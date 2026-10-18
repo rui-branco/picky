@@ -200,6 +200,33 @@ Forge Deck. Picky reads its name, icon and the command it registered for opening
 links, so it appears with its own icon and opens the link the way it asked to.
 A browser with no profiles of its own is shown by its name alone.
 
+### Browsers with their own profiles
+
+A browser registered with Windows can list its own profiles, and Picky then
+shows one entry per profile, the way it does for Chrome and Edge. Each profile
+is a key under the browser's client key, with string (`REG_SZ`) values:
+
+```
+HKCU\SOFTWARE\Clients\StartMenuInternet\<Client>\Profiles\<profile key>
+    Name      display name, such as "Work"                  (required)
+    Command   opens a link in this profile                  (required)
+              "C:\...\Forge Deck.exe" --browser-profile=p0123456789ab "%1"
+    Order     "0", "1", ... the position in the list        (missing goes last)
+    Color     "#rrggbb", the avatar colour                  (optional)
+    Initials  one or two letters drawn on the avatar        (optional)
+    Image     absolute path to a png, jpg or gif avatar     (optional, used over Color and Initials)
+```
+
+A profile without a name, or whose command does not point at an existing exe,
+is skipped. Each entry shows the browser's icon with the profile's avatar in a
+round badge, like Chromium's profile icons. With no usable profiles the browser
+is listed by its name alone, as before. A rule that named the browser before it
+listed profiles opens its first profile, and its place in the picker order is
+kept by all of them. The settings window rescans as the key changes, so a
+profile added or renamed shows up straight away.
+
+Forge Deck is the first browser to use it.
+
 ## Debugging
 
 - `picky.exe --keep <url>` — show the picker without dismissing it on focus loss; runs on its own, beside any background copy
